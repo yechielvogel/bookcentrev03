@@ -288,4 +288,29 @@ export const transactionsRouter = router({
       await db.delete(transactions).where(inArray(transactions.id, input.ids.map(BigInt)));
       return { deleted: input.ids.length };
     }),
+
+  bulkUpdate: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1),
+        categoryId: z.string().nullable().optional(),
+        supplierId: z.string().nullable().optional(),
+        relationId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { ids, categoryId, supplierId, relationId } = input;
+      const setObj: Record<string, unknown> = { updatedAt: sql`NOW()` };
+      if (categoryId !== undefined)
+        setObj.categoryId = categoryId ? BigInt(categoryId) : null;
+      if (supplierId !== undefined)
+        setObj.supplierId = supplierId ? BigInt(supplierId) : null;
+      if (relationId !== undefined)
+        setObj.relationId = relationId ? BigInt(relationId) : null;
+      await db
+        .update(transactions)
+        .set(setObj)
+        .where(inArray(transactions.id, ids.map(BigInt)));
+      return { updated: ids.length };
+    }),
 });

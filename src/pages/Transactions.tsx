@@ -5,26 +5,23 @@ import {
   ArrowLeftRight,
   ChevronUp,
   ChevronDown,
-  Tag,
-  Users,
-  Building2,
-  FileText,
   Flag,
   X,
   Download,
   Play,
   Pencil,
   Trash2,
-  UserPlus,
-  PackagePlus,
   StickyNote,
+  Check,
+  Tag,
+  PackagePlus,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { getErrorMessage, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -43,7 +40,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ProcessModal, type TxItem } from '@/components/transactions/ProcessModal';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -160,32 +159,33 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="secondary">Queued</Badge>;
 }
 
-// ── action modals ─────────────────────────────────────────────────────────────
+// ── inline edit cells ─────────────────────────────────────────────────────────
 
-// Categorise modal
-function CategoriseModal({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+const CATEGORY_TYPES = [
+  'expense',
+  'income',
+  'transfer',
+  'maaser',
+  'dividend',
+  'loan',
+  'bill',
+  'other',
+] as const;
+
+function InlineCategoryCell({ tx }: { tx: Transaction }) {
   const utils = trpc.useUtils();
-  const [categoryId, setCategoryId] = useState(tx.categoryId ?? '');
-  const [createCatOpen, setCreateCatOpen] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [newCatType, setNewCatType] = useState('');
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('');
 
-  const { data: categoriesData } = trpc.categories.list.useQuery(undefined);
+  const { data: categories } = trpc.categories.list.useQuery(undefined, { enabled: open });
 
   const updateMutation = trpc.transactions.update.useMutation({
     onSuccess: () => {
-      toast.success('Category updated');
       utils.transactions.list.invalidate();
-      onSaved();
-      onClose();
+      setOpen(false);
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
@@ -193,121 +193,790 @@ function CategoriseModal({
   const createCatMutation = trpc.categories.create.useMutation({
     onSuccess: (cat) => {
       utils.categories.list.invalidate();
-      setCategoryId(cat.id);
-      setCreateCatOpen(false);
-      setNewCatName('');
-      setNewCatType('');
+      updateMutation.mutate({ id: tx.id, categoryId: cat.id });
+      setCreating(false);
+      setNewName('');
+      setNewType('');
     },
     onError: (err) => toast.error(getErrorMessage(err)),
   });
 
+  const filtered = (categories ?? []).filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
   return (
-    <>
-      <Dialog open onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Categorise Transaction</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground truncate">{tx.description}</p>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select
-                value={categoryId}
-                onValueChange={(v) => {
-                  if (v === '__create__') {
-                    setCreateCatOpen(true);
-                    return;
-                  }
-                  setCategoryId(v);
-                }}
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) {
+          setSearch('');
+          setCreating(false);
+          setNewName('');
+          setNewType('');
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button className="group flex min-w-[90px] max-w-[160px] items-start text-left rounded px-1.5 py-1 hover:bg-muted/60 hover:outline hover:outline-1 hover:outline-dashed hover:outline-border transition-colors w-full">
+          {tx.categoryName ? (
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate">{tx.categoryName}</p>
+              <p className="text-xs text-muted-foreground capitalize">{tx.categoryType}</p>
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground/50 italic">Add category...</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start">
+        {creating ? (
+          <div className="p-2 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">New Category</p>
+            <Input
+              autoFocus
+              placeholder="Category name..."
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="h-7 text-xs"
+              onKeyDown={(e) => e.key === 'Escape' && setCreating(false)}
+            />
+            <div className="flex gap-1 flex-wrap">
+              {CATEGORY_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className={cn(
+                    'text-[11px] px-2 py-0.5 rounded border transition-colors',
+                    newType === type
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border hover:bg-muted',
+                  )}
+                  onClick={() => setNewType(type)}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setCreating(false)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__create__">+ Create new category</SelectItem>
-                  {(categoriesData ?? []).map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                      <span className="text-muted-foreground ml-1 text-xs">({cat.type})</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="h-6 text-xs px-2"
+                disabled={!newName.trim() || !newType || createCatMutation.isPending}
+                onClick={() => createCatMutation.mutate({ name: newName.trim(), type: newType })}
+              >
+                {createCatMutation.isPending ? '...' : 'Add'}
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => updateMutation.mutate({ id: tx.id, categoryId: categoryId || null })}
-              disabled={!categoryId || updateMutation.isPending}
-            >
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={createCatOpen} onOpenChange={setCreateCatOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Create Category</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>
-                Name <span className="text-destructive">*</span>
-              </Label>
+        ) : (
+          <>
+            <div className="p-1.5 border-b">
               <Input
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="e.g. Office Supplies"
+                autoFocus
+                placeholder="Search categories..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-7 text-xs"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>
-                Type <span className="text-destructive">*</span>
-              </Label>
-              <Select value={newCatType} onValueChange={setNewCatType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select type..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="expense">Expense</SelectItem>
-                  <SelectItem value="income">Income</SelectItem>
-                  <SelectItem value="transfer">Transfer</SelectItem>
-                  <SelectItem value="maaser">Maaser</SelectItem>
-                  <SelectItem value="dividend">Dividend</SelectItem>
-                  <SelectItem value="loan">Loan</SelectItem>
-                  <SelectItem value="bill">Bill Payment</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="max-h-52 overflow-y-auto p-1">
+              {filtered.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={cn(
+                    'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted flex items-center justify-between gap-2 transition-colors',
+                    tx.categoryId === cat.id && 'bg-primary/10',
+                  )}
+                  onClick={() => updateMutation.mutate({ id: tx.id, categoryId: cat.id })}
+                  disabled={updateMutation.isPending}
+                >
+                  <span className="truncate">{cat.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-muted-foreground text-[10px] capitalize">{cat.type}</span>
+                    {tx.categoryId === cat.id && <Check className="h-3 w-3 text-primary" />}
+                  </div>
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-xs text-center text-muted-foreground py-3">
+                  {search ? 'No matches' : 'No categories yet'}
+                </p>
+              )}
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateCatOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                createCatMutation.mutate({ name: newCatName.trim(), type: newCatType })
-              }
-              disabled={!newCatName.trim() || !newCatType || createCatMutation.isPending}
-            >
-              {createCatMutation.isPending ? 'Creating...' : 'Add Category'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+            <div className="p-1 border-t flex items-center">
+              {tx.categoryId && (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground hover:text-destructive px-2 py-1 rounded hover:bg-muted/50 transition-colors"
+                  onClick={() => updateMutation.mutate({ id: tx.id, categoryId: null })}
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-[11px] text-primary hover:underline ml-auto px-2 py-1"
+                onClick={() => setCreating(true)}
+              >
+                + Create new
+              </button>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
-// Edit modal
+function InlineSupplierCell({ tx }: { tx: Transaction }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+
+  const { data: suppliers } = trpc.suppliers.list.useQuery(undefined, { enabled: open });
+
+  const updateMutation = trpc.transactions.update.useMutation({
+    onSuccess: () => {
+      utils.transactions.list.invalidate();
+      setOpen(false);
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const createSupplierMutation = trpc.suppliers.create.useMutation({
+    onSuccess: (s) => {
+      utils.suppliers.list.invalidate();
+      updateMutation.mutate({ id: tx.id, supplierId: s.id });
+      setCreating(false);
+      setNewName('');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const filtered = (suppliers ?? []).filter((s) =>
+    s.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) {
+          setSearch('');
+          setCreating(false);
+          setNewName('');
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button className="flex min-w-[80px] max-w-[140px] items-center text-left rounded px-1.5 py-1 hover:bg-muted/60 hover:outline hover:outline-1 hover:outline-dashed hover:outline-border transition-colors w-full">
+          {tx.supplierName ? (
+            <span className="text-xs font-medium truncate">{tx.supplierName}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground/50 italic">Add supplier...</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-0" align="start">
+        {creating ? (
+          <div className="p-2 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">New Supplier</p>
+            <div className="flex gap-1">
+              <Input
+                autoFocus
+                placeholder="Supplier name..."
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="h-7 text-xs"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newName.trim())
+                    createSupplierMutation.mutate({ name: newName.trim() });
+                  if (e.key === 'Escape') setCreating(false);
+                }}
+              />
+              <Button
+                size="sm"
+                className="h-7 px-2 text-xs shrink-0"
+                disabled={!newName.trim() || createSupplierMutation.isPending}
+                onClick={() => createSupplierMutation.mutate({ name: newName.trim() })}
+              >
+                {createSupplierMutation.isPending ? '...' : 'Add'}
+              </Button>
+            </div>
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground hover:underline"
+              onClick={() => setCreating(false)}
+            >
+              ← Back
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="p-1.5 border-b">
+              <Input
+                autoFocus
+                placeholder="Search suppliers..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto p-1">
+              {filtered.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={cn(
+                    'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted flex items-center justify-between gap-2 transition-colors',
+                    tx.supplierId === s.id && 'bg-primary/10',
+                  )}
+                  onClick={() => updateMutation.mutate({ id: tx.id, supplierId: s.id })}
+                  disabled={updateMutation.isPending}
+                >
+                  <span className="truncate">{s.name}</span>
+                  {tx.supplierId === s.id && <Check className="h-3 w-3 text-primary shrink-0" />}
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-xs text-center text-muted-foreground py-3">
+                  {search ? 'No matches' : 'No suppliers yet'}
+                </p>
+              )}
+            </div>
+            <div className="p-1 border-t flex items-center">
+              {tx.supplierId && (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground hover:text-destructive px-2 py-1 rounded hover:bg-muted/50 transition-colors"
+                  onClick={() => updateMutation.mutate({ id: tx.id, supplierId: null })}
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                className="text-[11px] text-primary hover:underline ml-auto px-2 py-1"
+                onClick={() => setCreating(true)}
+              >
+                + Create new
+              </button>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const RELATION_ROLES = ['partner', 'lender', 'borrower'] as const;
+
+function InlineRelationCell({ tx }: { tx: Transaction }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [role, setRole] = useState<(typeof RELATION_ROLES)[number]>('partner');
+
+  const { data: contacts } = trpc.contacts.listAll.useQuery(undefined, { enabled: open });
+
+  const updateMutation = trpc.transactions.update.useMutation({
+    onSuccess: () => {
+      utils.transactions.list.invalidate();
+      setOpen(false);
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const filtered = (contacts ?? []).filter(
+    (c) => c.role === role && c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setSearch('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button className="flex min-w-[70px] max-w-[130px] items-center text-left rounded px-1.5 py-1 hover:bg-muted/60 hover:outline hover:outline-1 hover:outline-dashed hover:outline-border transition-colors w-full">
+          {tx.relationName ? (
+            <span className="text-xs font-medium truncate">{tx.relationName}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground/50 italic">Add relation...</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-0" align="start">
+        <div className="p-1.5 border-b space-y-1.5">
+          <div className="flex gap-1">
+            {RELATION_ROLES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={cn(
+                  'flex-1 text-[11px] py-0.5 rounded border capitalize transition-colors',
+                  role === r
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted',
+                )}
+                onClick={() => {
+                  setRole(r);
+                  setSearch('');
+                }}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <Input
+            autoFocus
+            placeholder={`Search ${role}s...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs"
+          />
+        </div>
+        <div className="max-h-44 overflow-y-auto p-1">
+          {filtered.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className={cn(
+                'w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted flex items-center justify-between gap-2 transition-colors',
+                tx.relationId === c.id && 'bg-primary/10',
+              )}
+              onClick={() => updateMutation.mutate({ id: tx.id, relationId: c.id })}
+              disabled={updateMutation.isPending}
+            >
+              <span className="truncate">{c.name}</span>
+              {tx.relationId === c.id && <Check className="h-3 w-3 text-primary shrink-0" />}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-center text-muted-foreground py-3">
+              No {role}s found
+            </p>
+          )}
+        </div>
+        {tx.relationId && (
+          <div className="p-1 border-t">
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground hover:text-destructive px-2 py-1 rounded hover:bg-muted/50 transition-colors"
+              onClick={() => updateMutation.mutate({ id: tx.id, relationId: null })}
+            >
+              Clear
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function InlineNotesCell({ tx }: { tx: Transaction }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [notes, setNotes] = useState(tx.notes ?? '');
+
+  const updateMutation = trpc.transactions.update.useMutation({
+    onSuccess: () => {
+      utils.transactions.list.invalidate();
+      setOpen(false);
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  function save() {
+    updateMutation.mutate({ id: tx.id, notes: notes.trim() || null });
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setNotes(tx.notes ?? '');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            'p-1 rounded transition-colors',
+            tx.notes
+              ? 'text-primary hover:bg-primary/10'
+              : 'text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted',
+          )}
+          title={tx.notes ? 'Edit note' : 'Add note'}
+        >
+          <StickyNote className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2 space-y-2" align="end">
+        <p className="text-xs font-medium text-muted-foreground">Note</p>
+        <Textarea
+          autoFocus
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add a note..."
+          className="text-xs min-h-[72px] resize-none"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        />
+        <div className="flex gap-1 justify-end">
+          {tx.notes && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-destructive hover:text-destructive px-2"
+              onClick={() => updateMutation.mutate({ id: tx.id, notes: null })}
+              disabled={updateMutation.isPending}
+            >
+              Clear
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs px-2"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-6 text-xs px-2"
+            onClick={save}
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? '...' : 'Save'}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function InlineFlagCell({ tx }: { tx: Transaction }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const updateMutation = trpc.transactions.update.useMutation({
+    onSuccess: () => {
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      setReason('');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  // Unflagging is instant — no popover needed
+  if (tx.status === 'flagged') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="p-1 rounded text-amber-500 hover:bg-amber-50 transition-colors"
+            onClick={() => updateMutation.mutate({ id: tx.id, status: 'queued', flagReason: null })}
+            disabled={updateMutation.isPending}
+          >
+            <Flag className="h-3.5 w-3.5 fill-current" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {tx.flagReason ? `Flagged: ${tx.flagReason}` : 'Flagged — click to unflag'}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setReason(''); }}>
+      <PopoverTrigger asChild>
+        <button
+          className="p-1 rounded text-muted-foreground/40 hover:text-amber-500 hover:bg-amber-50 transition-colors"
+          title="Flag transaction"
+        >
+          <Flag className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2 space-y-2" align="end">
+        <p className="text-xs font-medium text-muted-foreground">Flag reason (optional)</p>
+        <Input
+          autoFocus
+          placeholder="Reason..."
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="h-7 text-xs"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter')
+              updateMutation.mutate({ id: tx.id, status: 'flagged', flagReason: reason.trim() || null });
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        />
+        <div className="flex gap-1 justify-end">
+          <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-6 text-xs px-2 bg-amber-500 hover:bg-amber-600"
+            onClick={() =>
+              updateMutation.mutate({ id: tx.id, status: 'flagged', flagReason: reason.trim() || null })
+            }
+            disabled={updateMutation.isPending}
+          >
+            {updateMutation.isPending ? '...' : 'Flag'}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── bulk assign popovers ───────────────────────────────────────────────────────
+
+function BulkCategoryPopover({
+  selectedIds,
+  onDone,
+}: {
+  selectedIds: string[];
+  onDone: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState('');
+
+  const { data: categories } = trpc.categories.list.useQuery(undefined, { enabled: open });
+
+  const bulkUpdateMutation = trpc.transactions.bulkUpdate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Category set on ${res.updated} transaction${res.updated !== 1 ? 's' : ''}`);
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const createCatMutation = trpc.categories.create.useMutation({
+    onSuccess: (cat) => {
+      utils.categories.list.invalidate();
+      bulkUpdateMutation.mutate({ ids: selectedIds, categoryId: cat.id });
+      setCreating(false);
+      setNewName('');
+      setNewType('');
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const filtered = (categories ?? []).filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) {
+          setSearch('');
+          setCreating(false);
+          setNewName('');
+          setNewType('');
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8">
+          <Tag className="h-3.5 w-3.5" />
+          Assign Category
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-0" align="start">
+        {creating ? (
+          <div className="p-2 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">New Category</p>
+            <Input
+              autoFocus
+              placeholder="Category name..."
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              className="h-7 text-xs"
+              onKeyDown={(e) => e.key === 'Escape' && setCreating(false)}
+            />
+            <div className="flex gap-1 flex-wrap">
+              {CATEGORY_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  className={cn(
+                    'text-[11px] px-2 py-0.5 rounded border transition-colors',
+                    newType === type
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border hover:bg-muted',
+                  )}
+                  onClick={() => setNewType(type)}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs px-2"
+                onClick={() => setCreating(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="h-6 text-xs px-2"
+                disabled={!newName.trim() || !newType || createCatMutation.isPending}
+                onClick={() => createCatMutation.mutate({ name: newName.trim(), type: newType })}
+              >
+                {createCatMutation.isPending ? '...' : 'Add & Assign'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="p-1.5 border-b">
+              <Input
+                autoFocus
+                placeholder="Search categories..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto p-1">
+              {filtered.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted flex items-center justify-between gap-2 transition-colors"
+                  onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, categoryId: cat.id })}
+                  disabled={bulkUpdateMutation.isPending}
+                >
+                  <span className="truncate">{cat.name}</span>
+                  <span className="text-muted-foreground text-[10px] capitalize shrink-0">{cat.type}</span>
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-xs text-center text-muted-foreground py-3">
+                  {search ? 'No matches' : 'No categories yet'}
+                </p>
+              )}
+            </div>
+            <div className="p-1 border-t">
+              <button
+                type="button"
+                className="text-[11px] text-primary hover:underline px-2 py-1"
+                onClick={() => setCreating(true)}
+              >
+                + Create new
+              </button>
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BulkSupplierPopover({
+  selectedIds,
+  onDone,
+}: {
+  selectedIds: string[];
+  onDone: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const { data: suppliers } = trpc.suppliers.list.useQuery(undefined, { enabled: open });
+
+  const bulkUpdateMutation = trpc.transactions.bulkUpdate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Supplier set on ${res.updated} transaction${res.updated !== 1 ? 's' : ''}`);
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const filtered = (suppliers ?? []).filter((s) =>
+    s.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch(''); }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8">
+          <PackagePlus className="h-3.5 w-3.5" />
+          Assign Supplier
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-0" align="start">
+        <div className="p-1.5 border-b">
+          <Input
+            autoFocus
+            placeholder="Search suppliers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs"
+          />
+        </div>
+        <div className="max-h-48 overflow-y-auto p-1">
+          {filtered.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors"
+              onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, supplierId: s.id })}
+              disabled={bulkUpdateMutation.isPending}
+            >
+              {s.name}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-center text-muted-foreground py-3">No suppliers</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── remaining modals ──────────────────────────────────────────────────────────
+
 function EditModal({
   tx,
   onClose,
@@ -404,334 +1073,6 @@ function EditModal({
   );
 }
 
-// Relation modal
-function RelationModal({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const [relationRole, setRelationRole] = useState('partner');
-  const [relationId, setRelationId] = useState(tx.relationId ?? '');
-  const { data: contactsData } = trpc.contacts.listAll.useQuery(undefined);
-
-  const updateMutation = trpc.transactions.update.useMutation({
-    onSuccess: () => {
-      toast.success('Relation updated');
-      utils.transactions.list.invalidate();
-      onSaved();
-      onClose();
-    },
-    onError: (err) => toast.error(getErrorMessage(err)),
-  });
-
-  const filteredContacts = (contactsData ?? []).filter((c) => c.role === relationRole);
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Add Relation</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground truncate">{tx.description}</p>
-          <div className="space-y-1.5">
-            <Label>Relation Type</Label>
-            <Select
-              value={relationRole}
-              onValueChange={(v) => {
-                setRelationRole(v);
-                setRelationId('');
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="partner">Partner</SelectItem>
-                <SelectItem value="lender">Lender</SelectItem>
-                <SelectItem value="borrower">Borrower</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Contact</Label>
-            <Select value={relationId} onValueChange={setRelationId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select contact..." />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredContacts.length === 0 ? (
-                  <SelectItem value="__none__" disabled>
-                    No {relationRole}s found
-                  </SelectItem>
-                ) : (
-                  filteredContacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => updateMutation.mutate({ id: tx.id, relationId: relationId || null })}
-            disabled={!relationId || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Supplier modal
-function SupplierModal({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const [supplierId, setSupplierId] = useState(tx.supplierId ?? '');
-  const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
-
-  const { data: suppliersData } = trpc.suppliers.list.useQuery(undefined);
-
-  const updateMutation = trpc.transactions.update.useMutation({
-    onSuccess: () => {
-      toast.success('Supplier updated');
-      utils.transactions.list.invalidate();
-      onSaved();
-      onClose();
-    },
-    onError: (err) => toast.error(getErrorMessage(err)),
-  });
-
-  const createSupplierMutation = trpc.suppliers.create.useMutation({
-    onSuccess: (s) => {
-      utils.suppliers.list.invalidate();
-      setSupplierId(s.id);
-      setCreating(false);
-      setNewName('');
-    },
-    onError: (err) => toast.error(getErrorMessage(err)),
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Add Supplier</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground truncate">{tx.description}</p>
-          {creating ? (
-            <div className="space-y-1.5">
-              <Label>New Supplier Name</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Enter supplier name"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => createSupplierMutation.mutate({ name: newName.trim() })}
-                  disabled={!newName.trim() || createSupplierMutation.isPending}
-                >
-                  Add
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setCreating(false)}>
-                  Back
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <Label>Supplier</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select supplier..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(suppliersData ?? []).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <button
-                type="button"
-                className="text-xs text-primary hover:underline"
-                onClick={() => setCreating(true)}
-              >
-                + Create new supplier
-              </button>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => updateMutation.mutate({ id: tx.id, supplierId: supplierId || null })}
-            disabled={!supplierId || updateMutation.isPending}
-          >
-            {updateMutation.isPending ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Note modal
-function NoteModal({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const [notes, setNotes] = useState(tx.notes ?? '');
-
-  const updateMutation = trpc.transactions.update.useMutation({
-    onSuccess: () => {
-      toast.success('Note saved');
-      utils.transactions.list.invalidate();
-      onSaved();
-      onClose();
-    },
-    onError: (err) => toast.error(getErrorMessage(err)),
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Add Note</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground truncate">{tx.description}</p>
-          <Textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Add a note..."
-            disabled={updateMutation.isPending}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => updateMutation.mutate({ id: tx.id, notes: notes.trim() || null })}
-            disabled={updateMutation.isPending}
-          >
-            {updateMutation.isPending ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Flag modal
-function FlagModal({
-  tx,
-  onClose,
-  onSaved,
-}: {
-  tx: Transaction;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const utils = trpc.useUtils();
-  const isFlagged = tx.status === 'flagged';
-  const [reason, setReason] = useState(tx.flagReason ?? '');
-
-  const updateMutation = trpc.transactions.update.useMutation({
-    onSuccess: () => {
-      toast.success(isFlagged ? 'Transaction unflagged' : 'Transaction flagged');
-      utils.transactions.list.invalidate();
-      onSaved();
-      onClose();
-    },
-    onError: (err) => toast.error(getErrorMessage(err)),
-  });
-
-  function handleSave() {
-    if (isFlagged) {
-      updateMutation.mutate({ id: tx.id, status: 'queued', flagReason: null });
-    } else {
-      updateMutation.mutate({ id: tx.id, status: 'flagged', flagReason: reason.trim() || null });
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{isFlagged ? 'Unflag Transaction' : 'Flag Transaction'}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground truncate">{tx.description}</p>
-          {isFlagged ? (
-            <p className="text-sm">
-              This will remove the flag and return the transaction to <strong>queued</strong>{' '}
-              status.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              <Label>Reason (optional)</Label>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason for flagging..."
-                disabled={updateMutation.isPending}
-              />
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant={isFlagged ? 'outline' : 'default'}
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-          >
-            {updateMutation.isPending ? 'Saving...' : isFlagged ? 'Unflag' : 'Flag'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Delete confirm
 function DeleteConfirm({
   tx,
   onClose,
@@ -781,12 +1122,11 @@ function DeleteConfirm({
   );
 }
 
-// Bulk delete confirm
 function BulkDeleteConfirm({
   count,
+  ids,
   onClose,
   onDeleted,
-  ids,
 }: {
   count: number;
   ids: string[];
@@ -848,18 +1188,11 @@ export default function Transactions() {
   const sortBy = (searchParams.get('sortBy') as SortBy) ?? 'date';
   const sortDir = (searchParams.get('sortDir') as SortDir) ?? 'desc';
 
-  // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Modal state
   const [processQueue, setProcessQueue] = useState<TxItem[]>([]);
   const [processModalOpen, setProcessModalOpen] = useState(false);
   const [editTx, setEditTx] = useState<Transaction | null>(null);
-  const [categorizeTx, setCategorizeTx] = useState<Transaction | null>(null);
-  const [relationTx, setRelationTx] = useState<Transaction | null>(null);
-  const [supplierTx, setSupplierTx] = useState<Transaction | null>(null);
-  const [noteTx, setNoteTx] = useState<Transaction | null>(null);
-  const [flagTx, setFlagTx] = useState<Transaction | null>(null);
   const [deleteTx, setDeleteTx] = useState<Transaction | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -908,7 +1241,6 @@ export default function Transactions() {
   const singleTx =
     selectedIds.size === 1 ? (items.find((t) => selectedIds.has(t.id)) ?? null) : null;
 
-  // Select/deselect all on current page
   function toggleSelectAll() {
     if (items.every((t) => selectedIds.has(t.id))) {
       setSelectedIds(new Set());
@@ -998,7 +1330,7 @@ export default function Transactions() {
           </div>
         </div>
 
-        {/* Filter / action / bulk bar */}
+        {/* Filter / selection bar */}
         {selectedIds.size === 0 ? (
           /* Filter bar */
           <div className="flex items-center gap-2 flex-wrap">
@@ -1034,14 +1366,12 @@ export default function Transactions() {
               className="w-[140px]"
               value={dateFrom}
               onChange={(e) => setParam('dateFrom', e.target.value)}
-              placeholder="From"
             />
             <Input
               type="date"
               className="w-[140px]"
               value={dateTo}
               onChange={(e) => setParam('dateTo', e.target.value)}
-              placeholder="To"
             />
 
             <Select
@@ -1084,50 +1414,36 @@ export default function Transactions() {
           </div>
         ) : selectedIds.size === 1 && singleTx ? (
           /* Single-select action bar */
-          <div className="flex items-center gap-1 flex-wrap rounded-lg border border-border bg-muted/30 px-3 py-2">
-            <span className="text-sm font-medium text-muted-foreground mr-2">1 selected</span>
-            <ActionButton
-              icon={<Play className="h-4 w-4" />}
-              label="Process"
+          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-muted/30 px-3 py-2">
+            <span className="text-sm font-medium text-muted-foreground mr-1">1 selected</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8"
               onClick={openProcess}
               disabled={singleTx.status !== 'queued'}
-            />
-            <ActionButton
-              icon={<Pencil className="h-4 w-4" />}
-              label="Edit"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Process
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8"
               onClick={() => setEditTx(singleTx)}
-            />
-            <ActionButton
-              icon={<Tag className="h-4 w-4" />}
-              label="Categorise"
-              onClick={() => setCategorizeTx(singleTx)}
-            />
-            <ActionButton
-              icon={<UserPlus className="h-4 w-4" />}
-              label="Relation"
-              onClick={() => setRelationTx(singleTx)}
-            />
-            <ActionButton
-              icon={<PackagePlus className="h-4 w-4" />}
-              label="Supplier"
-              onClick={() => setSupplierTx(singleTx)}
-            />
-            <ActionButton
-              icon={<StickyNote className="h-4 w-4" />}
-              label="Note"
-              onClick={() => setNoteTx(singleTx)}
-            />
-            <ActionButton
-              icon={<Flag className="h-4 w-4" />}
-              label={singleTx.status === 'flagged' ? 'Unflag' : 'Flag'}
-              onClick={() => setFlagTx(singleTx)}
-            />
-            <ActionButton
-              icon={<Trash2 className="h-4 w-4" />}
-              label="Delete"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8 text-destructive hover:text-destructive"
               onClick={() => setDeleteTx(singleTx)}
-              destructive
-            />
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </Button>
             <div className="ml-auto">
               <Button
                 variant="ghost"
@@ -1146,10 +1462,18 @@ export default function Transactions() {
             <span className="text-sm font-medium text-muted-foreground">
               {selectedIds.size} selected
             </span>
+            <BulkCategoryPopover
+              selectedIds={selectedList}
+              onDone={() => setSelectedIds(new Set())}
+            />
+            <BulkSupplierPopover
+              selectedIds={selectedList}
+              onDone={() => setSelectedIds(new Set())}
+            />
             {tab === 'queued' && (
               <Button size="sm" variant="outline" className="gap-2 h-8" onClick={openProcess}>
                 <Play className="h-3.5 w-3.5" />
-                Process Selected
+                Process
               </Button>
             )}
             <Button
@@ -1206,26 +1530,32 @@ export default function Transactions() {
                 >
                   Amount <SortIcon col="amount" sortBy={sortBy} sortDir={sortDir} />
                 </th>
-                <th className="text-right px-3 py-3 font-medium text-muted-foreground hidden lg:table-cell">
+                <th className="text-right px-3 py-3 font-medium text-muted-foreground hidden xl:table-cell">
                   Balance
                 </th>
-                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden md:table-cell">
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden lg:table-cell">
                   Company / Account
                 </th>
-                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden xl:table-cell">
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden md:table-cell">
                   Category
+                </th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden xl:table-cell">
+                  Supplier
+                </th>
+                <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden xl:table-cell">
+                  Relation
                 </th>
                 <th className="text-left px-3 py-3 font-medium text-muted-foreground hidden sm:table-cell">
                   Status
                 </th>
-                <th className="w-28 px-3 py-3" />
+                <th className="w-20 px-3 py-3" />
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-border">
-                    {Array.from({ length: 9 }).map((__, j) => (
+                    {Array.from({ length: 11 }).map((__, j) => (
                       <td key={j} className="px-3 py-3">
                         <div className="h-4 bg-muted animate-pulse rounded" />
                       </td>
@@ -1234,7 +1564,7 @@ export default function Transactions() {
                 ))
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-16 text-center">
+                  <td colSpan={11} className="px-4 py-16 text-center">
                     <ArrowLeftRight className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
                     <p className="text-sm font-medium text-muted-foreground">
                       {hasActiveFilters || q
@@ -1273,108 +1603,86 @@ export default function Transactions() {
                     <tr
                       key={tx.id}
                       className={cn(
-                        'border-b border-border last:border-0 hover:bg-muted/30',
+                        'group border-b border-border last:border-0 hover:bg-muted/20 transition-colors',
                         isSelected && 'bg-primary/5',
                       )}
                     >
-                      <td className="w-10 px-3 py-3">
+                      <td className="w-10 px-3 py-2">
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleSelect(tx.id)}
                         />
                       </td>
-                      <td className="px-3 py-3 text-muted-foreground whitespace-nowrap">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap text-xs">
                         {formatDate(tx.transactionDate)}
                       </td>
-                      <td className="px-3 py-3 max-w-[240px]">
-                        <p className="truncate font-medium">{tx.description}</p>
+                      <td className="px-3 py-2 max-w-[200px]">
+                        <p className="truncate text-sm font-medium">{tx.description}</p>
                       </td>
                       <td
                         className={cn(
-                          'px-3 py-3 text-right font-medium tabular-nums whitespace-nowrap',
+                          'px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap text-sm',
                           isCredit ? 'text-green-600' : 'text-red-600',
                         )}
                       >
                         {isCredit ? '+' : ''}
                         {formatCurrency(tx.amount)}
                       </td>
-                      <td className="px-3 py-3 text-right text-muted-foreground tabular-nums whitespace-nowrap hidden lg:table-cell">
+                      <td className="px-3 py-2 text-right text-muted-foreground tabular-nums whitespace-nowrap text-xs hidden xl:table-cell">
                         {tx.runningBalance ? formatCurrency(tx.runningBalance) : '—'}
                       </td>
-                      <td className="px-3 py-3 hidden md:table-cell">
-                        <p className="font-medium text-xs truncate max-w-[140px]">
+                      <td className="px-3 py-2 hidden lg:table-cell">
+                        <p className="font-medium text-xs truncate max-w-[130px]">
                           {tx.companyName}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate max-w-[140px]">
+                        <p className="text-xs text-muted-foreground truncate max-w-[130px]">
                           {tx.bankAccountLabel}
                         </p>
                       </td>
-                      <td className="px-3 py-3 hidden xl:table-cell">
-                        {tx.categoryName ? (
-                          <div>
-                            <p className="text-xs font-medium">{tx.categoryName}</p>
-                            <p className="text-xs text-muted-foreground">{tx.categoryType}</p>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground/40 text-xs">—</span>
-                        )}
+                      {/* Inline-editable: Category */}
+                      <td className="px-2 py-1.5 hidden md:table-cell">
+                        <InlineCategoryCell tx={tx} />
                       </td>
-                      <td className="px-3 py-3 hidden sm:table-cell">
+                      {/* Inline-editable: Supplier */}
+                      <td className="px-2 py-1.5 hidden xl:table-cell">
+                        <InlineSupplierCell tx={tx} />
+                      </td>
+                      {/* Inline-editable: Relation */}
+                      <td className="px-2 py-1.5 hidden xl:table-cell">
+                        <InlineRelationCell tx={tx} />
+                      </td>
+                      <td className="px-3 py-2 hidden sm:table-cell">
                         <StatusBadge status={tx.status} />
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1 justify-end">
-                          {tx.relationName && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="p-1 rounded text-muted-foreground">
-                                  <Users className="h-3.5 w-3.5" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>{tx.relationName}</TooltipContent>
-                            </Tooltip>
-                          )}
-                          {tx.supplierName && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="p-1 rounded text-muted-foreground">
-                                  <Building2 className="h-3.5 w-3.5" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>{tx.supplierName}</TooltipContent>
-                            </Tooltip>
-                          )}
-                          {tx.notes && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="p-1 rounded text-muted-foreground">
-                                  <FileText className="h-3.5 w-3.5" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className="max-w-[200px]">{tx.notes}</TooltipContent>
-                            </Tooltip>
-                          )}
-                          {tx.status === 'flagged' && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="p-1 rounded text-amber-500">
-                                  <Flag className="h-3.5 w-3.5" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>{tx.flagReason ?? 'Flagged'}</TooltipContent>
-                            </Tooltip>
-                          )}
-                          <button
-                            className="p-1 rounded hover:bg-muted text-muted-foreground"
-                            onClick={() => {
-                              if (tx.uploadId) {
-                                navigate(`/transactions?uploadId=${tx.uploadId}`);
-                              }
-                            }}
-                            title="View upload"
-                          >
-                            <ArrowLeftRight className="h-3.5 w-3.5" />
-                          </button>
+                      {/* Per-row actions */}
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-0.5 justify-end">
+                          <InlineNotesCell tx={tx} />
+                          <InlineFlagCell tx={tx} />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+                                onClick={() => setDeleteTx(tx)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className="p-1 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted transition-colors opacity-0 group-hover:opacity-100"
+                                onClick={() => {
+                                  if (tx.uploadId) navigate(`/transactions?uploadId=${tx.uploadId}`);
+                                }}
+                              >
+                                <Users className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>View upload</TooltipContent>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>
@@ -1431,41 +1739,6 @@ export default function Transactions() {
             onSaved={() => setSelectedIds(new Set())}
           />
         )}
-        {categorizeTx && (
-          <CategoriseModal
-            tx={categorizeTx}
-            onClose={() => setCategorizeTx(null)}
-            onSaved={() => setSelectedIds(new Set())}
-          />
-        )}
-        {relationTx && (
-          <RelationModal
-            tx={relationTx}
-            onClose={() => setRelationTx(null)}
-            onSaved={() => setSelectedIds(new Set())}
-          />
-        )}
-        {supplierTx && (
-          <SupplierModal
-            tx={supplierTx}
-            onClose={() => setSupplierTx(null)}
-            onSaved={() => setSelectedIds(new Set())}
-          />
-        )}
-        {noteTx && (
-          <NoteModal
-            tx={noteTx}
-            onClose={() => setNoteTx(null)}
-            onSaved={() => setSelectedIds(new Set())}
-          />
-        )}
-        {flagTx && (
-          <FlagModal
-            tx={flagTx}
-            onClose={() => setFlagTx(null)}
-            onSaved={() => setSelectedIds(new Set())}
-          />
-        )}
         {deleteTx && (
           <DeleteConfirm
             tx={deleteTx}
@@ -1483,43 +1756,5 @@ export default function Transactions() {
         )}
       </div>
     </TooltipProvider>
-  );
-}
-
-// ── action button helper ──────────────────────────────────────────────────────
-
-function ActionButton({
-  icon,
-  label,
-  onClick,
-  disabled,
-  destructive,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  destructive?: boolean;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors',
-            destructive
-              ? 'text-destructive hover:bg-destructive/10 disabled:opacity-40'
-              : 'text-foreground hover:bg-muted disabled:opacity-40',
-          )}
-          onClick={onClick}
-          disabled={disabled}
-        >
-          {icon}
-          <span className="hidden sm:inline">{label}</span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="sm:hidden">{label}</TooltipContent>
-    </Tooltip>
   );
 }
