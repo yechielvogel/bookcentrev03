@@ -975,6 +975,256 @@ function BulkSupplierPopover({
   );
 }
 
+function BulkRelationPopover({
+  selectedIds,
+  onDone,
+}: {
+  selectedIds: string[];
+  onDone: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [role, setRole] = useState<(typeof RELATION_ROLES)[number]>('partner');
+
+  const { data: contacts } = trpc.contacts.listAll.useQuery(undefined, { enabled: open });
+
+  const bulkUpdateMutation = trpc.transactions.bulkUpdate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Relation set on ${res.updated} transaction${res.updated !== 1 ? 's' : ''}`);
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  const filtered = (contacts ?? []).filter(
+    (c) => c.role === role && c.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setSearch('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8">
+          <Users className="h-3.5 w-3.5" />
+          Assign Relation
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-52 p-0" align="start">
+        <div className="p-1.5 border-b space-y-1.5">
+          <div className="flex gap-1">
+            {RELATION_ROLES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={cn(
+                  'flex-1 text-[11px] py-0.5 rounded border capitalize transition-colors',
+                  role === r
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border hover:bg-muted',
+                )}
+                onClick={() => { setRole(r); setSearch(''); }}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <Input
+            autoFocus
+            placeholder={`Search ${role}s...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs"
+          />
+        </div>
+        <div className="max-h-44 overflow-y-auto p-1">
+          {filtered.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors"
+              onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, relationId: c.id })}
+              disabled={bulkUpdateMutation.isPending}
+            >
+              {c.name}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-center text-muted-foreground py-3">No {role}s found</p>
+          )}
+        </div>
+        <div className="p-1 border-t">
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground hover:text-destructive px-2 py-1 rounded hover:bg-muted/50 transition-colors"
+            onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, relationId: null })}
+            disabled={bulkUpdateMutation.isPending}
+          >
+            Clear relation
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BulkNotesPopover({
+  selectedIds,
+  onDone,
+}: {
+  selectedIds: string[];
+  onDone: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [notes, setNotes] = useState('');
+
+  const bulkUpdateMutation = trpc.transactions.bulkUpdate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Note set on ${res.updated} transaction${res.updated !== 1 ? 's' : ''}`);
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setNotes('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8">
+          <StickyNote className="h-3.5 w-3.5" />
+          Set Note
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2 space-y-2" align="start">
+        <p className="text-xs font-medium text-muted-foreground">Note (applies to all selected)</p>
+        <Textarea
+          autoFocus
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add a note..."
+          className="text-xs min-h-[72px] resize-none"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))
+              bulkUpdateMutation.mutate({ ids: selectedIds, notes: notes.trim() || null });
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        />
+        <div className="flex gap-1 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs text-destructive hover:text-destructive px-2"
+            onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, notes: null })}
+            disabled={bulkUpdateMutation.isPending}
+          >
+            Clear
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs px-2"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-6 text-xs px-2"
+            onClick={() => bulkUpdateMutation.mutate({ ids: selectedIds, notes: notes.trim() || null })}
+            disabled={bulkUpdateMutation.isPending}
+          >
+            {bulkUpdateMutation.isPending ? '...' : 'Save'}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function BulkFlagPopover({
+  selectedIds,
+  onDone,
+}: {
+  selectedIds: string[];
+  onDone: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const bulkUpdateMutation = trpc.transactions.bulkUpdate.useMutation({
+    onSuccess: (res) => {
+      toast.success(`${res.updated} transaction${res.updated !== 1 ? 's' : ''} flagged`);
+      utils.transactions.list.invalidate();
+      setOpen(false);
+      onDone();
+    },
+    onError: (err) => toast.error(getErrorMessage(err)),
+  });
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setReason('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8 text-amber-600 hover:text-amber-600">
+          <Flag className="h-3.5 w-3.5" />
+          Flag
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 p-2 space-y-2" align="start">
+        <p className="text-xs font-medium text-muted-foreground">Flag reason (optional)</p>
+        <Input
+          autoFocus
+          placeholder="Reason..."
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="h-7 text-xs"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter')
+              bulkUpdateMutation.mutate({ ids: selectedIds, status: 'flagged', flagReason: reason.trim() || null });
+            if (e.key === 'Escape') setOpen(false);
+          }}
+        />
+        <div className="flex gap-1 justify-end">
+          <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-6 text-xs px-2 bg-amber-500 hover:bg-amber-600"
+            onClick={() =>
+              bulkUpdateMutation.mutate({ ids: selectedIds, status: 'flagged', flagReason: reason.trim() || null })
+            }
+            disabled={bulkUpdateMutation.isPending}
+          >
+            {bulkUpdateMutation.isPending ? '...' : 'Flag All'}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ── remaining modals ──────────────────────────────────────────────────────────
 
 function EditModal({
@@ -1467,6 +1717,18 @@ export default function Transactions() {
               onDone={() => setSelectedIds(new Set())}
             />
             <BulkSupplierPopover
+              selectedIds={selectedList}
+              onDone={() => setSelectedIds(new Set())}
+            />
+            <BulkRelationPopover
+              selectedIds={selectedList}
+              onDone={() => setSelectedIds(new Set())}
+            />
+            <BulkNotesPopover
+              selectedIds={selectedList}
+              onDone={() => setSelectedIds(new Set())}
+            />
+            <BulkFlagPopover
               selectedIds={selectedList}
               onDone={() => setSelectedIds(new Set())}
             />

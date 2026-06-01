@@ -296,10 +296,13 @@ export const transactionsRouter = router({
         categoryId: z.string().nullable().optional(),
         supplierId: z.string().nullable().optional(),
         relationId: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+        status: z.string().optional(),
+        flagReason: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ input }) => {
-      const { ids, categoryId, supplierId, relationId } = input;
+      const { ids, categoryId, supplierId, relationId, notes, status, flagReason } = input;
       const setObj: Record<string, unknown> = { updatedAt: sql`NOW()` };
       if (categoryId !== undefined)
         setObj.categoryId = categoryId ? BigInt(categoryId) : null;
@@ -307,6 +310,12 @@ export const transactionsRouter = router({
         setObj.supplierId = supplierId ? BigInt(supplierId) : null;
       if (relationId !== undefined)
         setObj.relationId = relationId ? BigInt(relationId) : null;
+      if (notes !== undefined)
+        setObj.notes = notes;
+      if (status !== undefined)
+        setObj.status = status;
+      if (flagReason !== undefined)
+        setObj.flagReason = flagReason;
       await db
         .update(transactions)
         .set(setObj)
