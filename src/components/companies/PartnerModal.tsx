@@ -12,14 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
 interface Partner {
   id: string;
   name: string;
@@ -27,7 +19,6 @@ interface Partner {
   phone?: string | null;
   partnerShare?: string | null;
   partnerDividendAmount?: string | null;
-  partnerDividendFrequency?: string | null;
   investmentAmount?: string | null;
   openingBalance?: string | null;
   adminNote?: string | null;
@@ -47,7 +38,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
   const [phone, setPhone] = useState('');
   const [partnerShare, setPartnerShare] = useState('');
   const [dividendAmount, setDividendAmount] = useState('');
-  const [dividendFrequency, setDividendFrequency] = useState('');
   const [investmentAmount, setInvestmentAmount] = useState('');
   const [openingBalance, setOpeningBalance] = useState('0');
   const [adminNote, setAdminNote] = useState('');
@@ -59,7 +49,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
       setPhone(existing.phone ?? '');
       setPartnerShare(existing.partnerShare ?? '');
       setDividendAmount(existing.partnerDividendAmount ?? '');
-      setDividendFrequency(existing.partnerDividendFrequency ?? '');
       setInvestmentAmount(existing.investmentAmount ?? '');
       setOpeningBalance(existing.openingBalance ?? '0');
       setAdminNote(existing.adminNote ?? '');
@@ -69,7 +58,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
       setPhone('');
       setPartnerShare('');
       setDividendAmount('');
-      setDividendFrequency('');
       setInvestmentAmount('');
       setOpeningBalance('0');
       setAdminNote('');
@@ -111,7 +99,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
         phone: phone || null,
         partnerShare: partnerShare || null,
         partnerDividendAmount: dividendAmount || null,
-        partnerDividendFrequency: dividendFrequency || null,
         investmentAmount: investmentAmount || null,
         adminNote: adminNote || null,
       });
@@ -124,7 +111,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
         companyId,
         partnerShare: partnerShare || undefined,
         partnerDividendAmount: dividendAmount || undefined,
-        partnerDividendFrequency: dividendFrequency || undefined,
         investmentAmount: investmentAmount || undefined,
         openingBalance: openingBalance || '0',
         adminNote: adminNote || undefined,
@@ -214,19 +200,6 @@ export function PartnerModal({ open, onOpenChange, companyId, existing, onSaved 
                 placeholder="0.00"
                 disabled={isPending}
               />
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Dividend Frequency</Label>
-              <Select value={dividendFrequency} onValueChange={setDividendFrequency}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="annually">Annually</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Admin Note</Label>
