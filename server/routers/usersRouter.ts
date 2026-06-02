@@ -4,8 +4,6 @@ import { eq, sql } from 'drizzle-orm';
 import { superAdminProcedure, protectedProcedure, router } from '../trpc.js';
 import { db } from '../db/index.js';
 import { users } from '../db/schema.js';
-import { sendInviteEmail } from '../utils/email.js';
-import { randomBytes } from 'crypto';
 
 export const usersRouter = router({
   list: protectedProcedure.query(async () => {
@@ -22,6 +20,7 @@ export const usersRouter = router({
         name: z.string().min(1),
         email: z.string().email().toLowerCase().trim(),
         role: z.enum(['admin', 'superadmin']),
+        password: z.string().min(8),
       }),
     )
     .mutation(async ({ input }) => {
@@ -33,8 +32,7 @@ export const usersRouter = router({
         throw new Error('A user with this email already exists');
       }
 
-      const tempPassword = randomBytes(8).toString('hex');
-      const hashedPassword = await argon2.hash(tempPassword);
+      const hashedPassword = await argon2.hash(input.password);
 
       const [newUser] = await db
         .insert(users)
@@ -45,8 +43,6 @@ export const usersRouter = router({
           hashedPassword,
         })
         .returning({ id: users.id });
-
-      await sendInviteEmail(input.email, input.name, tempPassword).catch(console.error);
 
       return { id: newUser.id.toString() };
     }),

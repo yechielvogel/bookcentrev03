@@ -53,24 +53,43 @@ export const dashboardRouter = router({
           ? null
           : new Date(Date.now() - parseInt(input.timeframe) * 24 * 60 * 60 * 1000);
 
-      // Find maaser category id
-      const maaserCategory = await db.query.categories.findFirst({
-        where: sql`LOWER(${categories.name}) LIKE '%maaser%' OR LOWER(${categories.type}) LIKE '%maaser%'`,
-      });
+      // Find all category IDs by type
+      const incomeCategories = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(eq(categories.type, 'income'));
+      const charityCategories = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(eq(categories.type, 'charity'));
 
-      const incomeConditions = cutoff
-        ? and(sql`${transactions.amount} > 0`, gte(transactions.transactionDate, cutoff))
-        : sql`${transactions.amount} > 0`;
+      const incomeCategoryIds = incomeCategories.map((c) => c.id);
+      const charityCategoryIds = charityCategories.map((c) => c.id);
+
+      const incomeConditions =
+        incomeCategoryIds.length > 0
+          ? cutoff
+            ? and(
+                sql`${transactions.categoryId} = ANY(ARRAY[${sql.join(incomeCategoryIds.map((id) => sql`${id}`), sql`, `)}]::bigint[])`,
+                gte(transactions.transactionDate, cutoff),
+              )
+            : sql`${transactions.categoryId} = ANY(ARRAY[${sql.join(incomeCategoryIds.map((id) => sql`${id}`), sql`, `)}]::bigint[])`
+          : sql`false`;
 
       const maaserConditions =
-        maaserCategory && cutoff
-          ? and(
-              eq(transactions.categoryId, maaserCategory.id),
-              gte(transactions.transactionDate, cutoff),
-            )
-          : maaserCategory
-            ? eq(transactions.categoryId, maaserCategory.id)
-            : sql`false`;
+        charityCategoryIds.length > 0
+          ? cutoff
+            ? and(
+                sql`${transactions.categoryId} = ANY(ARRAY[${sql.join(charityCategoryIds.map((id) => sql`${id}`), sql`, `)}]::bigint[])`,
+                gte(transactions.transactionDate, cutoff),
+              )
+            : sql`${transactions.categoryId} = ANY(ARRAY[${sql.join(charityCategoryIds.map((id) => sql`${id}`), sql`, `)}]::bigint[])`
+          : sql`false`;
+
+      const recentMaaserConditions =
+        charityCategoryIds.length > 0
+          ? sql`${transactions.categoryId} = ANY(ARRAY[${sql.join(charityCategoryIds.map((id) => sql`${id}`), sql`, `)}]::bigint[])`
+          : sql`false`;
 
       const [incomeResult, maaserPaidResult, recentMaaser] = await Promise.all([
         db
@@ -78,21 +97,17 @@ export const dashboardRouter = router({
           .from(transactions)
           .where(incomeConditions),
 
-        maaserCategory
-          ? db
-              .select({ total: sum(sql`ABS(${transactions.amount})`) })
-              .from(transactions)
-              .where(maaserConditions)
-          : Promise.resolve([{ total: '0' }]),
+        db
+          .select({ total: sum(sql`ABS(${transactions.amount})`) })
+          .from(transactions)
+          .where(maaserConditions),
 
-        maaserCategory
-          ? db
-              .select()
-              .from(transactions)
-              .where(eq(transactions.categoryId, maaserCategory.id))
-              .orderBy(desc(transactions.transactionDate))
-              .limit(20)
-          : Promise.resolve([]),
+        db
+          .select()
+          .from(transactions)
+          .where(recentMaaserConditions)
+          .orderBy(desc(transactions.transactionDate))
+          .limit(20),
       ]);
 
       const totalIncome = parseFloat(incomeResult[0]?.total ?? '0');

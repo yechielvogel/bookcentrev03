@@ -238,7 +238,7 @@ export default function Reporting() {
       companyId: filters.companyId,
       dateFrom,
       dateTo,
-      categoryType: 'Maaser',
+      categoryType: 'charity',
       sortBy: 'date',
       sortDir: 'desc',
     },

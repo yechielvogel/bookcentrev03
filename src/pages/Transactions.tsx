@@ -162,14 +162,11 @@ function StatusBadge({ status }: { status: string }) {
 // ── inline edit cells ─────────────────────────────────────────────────────────
 
 const CATEGORY_TYPES = [
-  'expense',
   'income',
-  'transfer',
-  'maaser',
-  'dividend',
+  'expense',
+  'withdrawal',
+  'charity',
   'loan',
-  'bill',
-  'other',
 ] as const;
 
 function InlineCategoryCell({ tx }: { tx: Transaction }) {

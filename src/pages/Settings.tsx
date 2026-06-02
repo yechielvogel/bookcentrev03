@@ -189,15 +189,17 @@ function UsersSection() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [invitePassword, setInvitePassword] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'superadmin'>('admin');
   const [inviteError, setInviteError] = useState('');
 
   const inviteMutation = trpc.users.invite.useMutation({
     onSuccess: () => {
-      toast.success('Invitation sent');
+      toast.success('User created');
       setInviteOpen(false);
       setInviteName('');
       setInviteEmail('');
+      setInvitePassword('');
       setInviteRole('admin');
       utils.users.list.invalidate();
     },
@@ -270,7 +272,7 @@ function UsersSection() {
             onSubmit={(e) => {
               e.preventDefault();
               setInviteError('');
-              inviteMutation.mutate({ name: inviteName, email: inviteEmail, role: inviteRole });
+              inviteMutation.mutate({ name: inviteName, email: inviteEmail, role: inviteRole, password: invitePassword });
             }}
             className="space-y-4"
           >
@@ -302,6 +304,17 @@ function UsersSection() {
             </div>
             <div className="space-y-1.5">
               <Label>
+                Password <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                type="password"
+                value={invitePassword}
+                onChange={(e) => setInvitePassword(e.target.value)}
+                placeholder="Min. 8 characters"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>
                 Role <span className="text-destructive">*</span>
               </Label>
               <Select
@@ -323,9 +336,9 @@ function UsersSection() {
               </Button>
               <Button
                 type="submit"
-                disabled={!inviteName || !inviteEmail || inviteMutation.isPending}
+                disabled={!inviteName || !inviteEmail || invitePassword.length < 8 || inviteMutation.isPending}
               >
-                {inviteMutation.isPending ? 'Sending...' : 'Send invite'}
+                {inviteMutation.isPending ? 'Creating...' : 'Create user'}
               </Button>
             </DialogFooter>
           </form>

@@ -494,14 +494,11 @@ export function ProcessModal({ open, onOpenChange, txQueue, onAllDone }: Props) 
                   <SelectValue placeholder="Select type..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="expense">Expense</SelectItem>
                   <SelectItem value="income">Income</SelectItem>
-                  <SelectItem value="transfer">Transfer</SelectItem>
-                  <SelectItem value="maaser">Maaser</SelectItem>
-                  <SelectItem value="dividend">Dividend</SelectItem>
+                  <SelectItem value="expense">Expense</SelectItem>
+                  <SelectItem value="withdrawal">Withdrawal</SelectItem>
+                  <SelectItem value="charity">Charity</SelectItem>
                   <SelectItem value="loan">Loan</SelectItem>
-                  <SelectItem value="bill">Bill Payment</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
