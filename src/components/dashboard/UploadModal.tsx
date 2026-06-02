@@ -34,6 +34,12 @@ interface UploadSummary {
     amount: string;
     runningBalance: string | null;
   }>;
+  duplicateTransactions: Array<{
+    date: string;
+    description: string;
+    amount: string;
+    runningBalance: string | null;
+  }>;
 }
 
 interface Props {
@@ -51,6 +57,7 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
   const [bankAccountId, setBankAccountId] = useState('');
   const [summary, setSummary] = useState<UploadSummary | null>(null);
   const [fileError, setFileError] = useState('');
+  const [selectedDuplicates, setSelectedDuplicates] = useState<Set<number>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: companiesList } = trpc.companies.listAll.useQuery(undefined, { enabled: open });
@@ -91,6 +98,7 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
     setBankAccountId('');
     setSummary(null);
     setFileError('');
+    setSelectedDuplicates(new Set());
     onOpenChange(false);
   }
 
@@ -130,14 +138,16 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
 
   function handleConfirm() {
     if (!summary || !file) return;
+    const chosenDupes = summary.duplicateTransactions.filter((_, i) => selectedDuplicates.has(i));
+    const transactions = [...summary.transactions, ...chosenDupes];
     confirmImport.mutate({
       fileName: file.name,
       companyId,
       bankAccountId,
       totalFound: summary.totalFound,
-      duplicates: summary.duplicates,
+      duplicates: summary.duplicates - chosenDupes.length,
       invalidRows: summary.invalidRows,
-      transactions: summary.transactions,
+      transactions,
     });
   }
 
@@ -150,7 +160,7 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
         if (!v) handleClose();
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         {step === 'form' ? (
           <>
             <DialogHeader>
@@ -328,9 +338,13 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
                 <div className="rounded-lg border border-border overflow-hidden">
                   {[
                     { label: 'Total transactions found', value: summary.totalFound },
-                    { label: 'Duplicate transactions skipped', value: summary.duplicates },
+                    { label: 'Duplicate transactions skipped', value: summary.duplicates - selectedDuplicates.size },
                     { label: 'Invalid rows detected', value: summary.invalidRows },
-                    { label: 'Final total to import', value: summary.toImport, bold: true },
+                    {
+                      label: 'Final total to import',
+                      value: summary.toImport + selectedDuplicates.size,
+                      bold: true,
+                    },
                   ].map(({ label, value, bold }) => (
                     <div
                       key={label}
@@ -345,6 +359,60 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
                     </div>
                   ))}
                 </div>
+
+                {summary.duplicates > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium">Duplicate transactions</p>
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                        onClick={() =>
+                          setSelectedDuplicates(
+                            selectedDuplicates.size === summary.duplicateTransactions.length
+                              ? new Set()
+                              : new Set(summary.duplicateTransactions.map((_, i) => i)),
+                          )
+                        }
+                      >
+                        {selectedDuplicates.size === summary.duplicateTransactions.length
+                          ? 'Deselect all'
+                          : 'Select all'}
+                      </button>
+                    </div>
+                    <div className="rounded-lg border border-border overflow-hidden max-h-48 overflow-y-auto">
+                      {summary.duplicateTransactions.map((t, i) => (
+                        <label
+                          key={i}
+                          className="flex items-center gap-3 px-3 py-2 border-b border-border last:border-0 cursor-pointer hover:bg-muted/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDuplicates.has(i)}
+                            onChange={() => {
+                              const next = new Set(selectedDuplicates);
+                              if (next.has(i)) next.delete(i);
+                              else next.add(i);
+                              setSelectedDuplicates(next);
+                            }}
+                            className="h-4 w-4 shrink-0 accent-primary"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs truncate">{t.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(t.date).toLocaleDateString()} · £{parseFloat(t.amount).toFixed(2)}
+                            </p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {selectedDuplicates.size > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedDuplicates.size} duplicate{selectedDuplicates.size !== 1 ? 's' : ''} will be imported
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {!summary.valid && (
                   <Alert variant="destructive">
@@ -362,6 +430,7 @@ export function UploadModal({ open, onOpenChange, onImported }: Props) {
                 onClick={() => {
                   setSummary(null);
                   setStep('form');
+                  setSelectedDuplicates(new Set());
                 }}
               >
                 Cancel import

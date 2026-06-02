@@ -38,6 +38,7 @@ export const uploadsRouter = router({
           invalidRows: result.invalidRows,
           toImport: 0,
           transactions: [],
+          duplicateTransactions: [],
         };
       }
 
@@ -50,6 +51,7 @@ export const uploadsRouter = router({
           invalidRows: result.invalidRows,
           toImport: 0,
           transactions: [],
+          duplicateTransactions: [],
         };
       }
 
@@ -64,30 +66,34 @@ export const uploadsRouter = router({
         existingTxns.map((t) => `${t.transactionDate.toISOString()}|${t.description}|${t.amount}`),
       );
 
-      let duplicates = 0;
-      const newTxns = result.transactions.filter((t) => {
+      const newTxns: typeof result.transactions = [];
+      const dupTxns: typeof result.transactions = [];
+
+      for (const t of result.transactions) {
         const key = `${t.date.toISOString()}|${t.description}|${t.amount}`;
         if (existingSet.has(key)) {
-          duplicates++;
-          return false;
+          dupTxns.push(t);
+        } else {
+          newTxns.push(t);
         }
-        return true;
+      }
+
+      const serialize = (t: (typeof result.transactions)[number]) => ({
+        date: t.date.toISOString(),
+        description: t.description,
+        amount: t.amount.toString(),
+        runningBalance: t.runningBalance?.toString() ?? null,
       });
 
       return {
         valid: true,
         validationStatus: 'Success',
         totalFound: result.transactions.length,
-        duplicates,
+        duplicates: dupTxns.length,
         invalidRows: result.invalidRows,
         toImport: newTxns.length,
-        // Include parsed transactions to pass back for confirm step
-        transactions: newTxns.map((t) => ({
-          date: t.date.toISOString(),
-          description: t.description,
-          amount: t.amount.toString(),
-          runningBalance: t.runningBalance?.toString() ?? null,
-        })),
+        transactions: newTxns.map(serialize),
+        duplicateTransactions: dupTxns.map(serialize),
       };
     }),
 
